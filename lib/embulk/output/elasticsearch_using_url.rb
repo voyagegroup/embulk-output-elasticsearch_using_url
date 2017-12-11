@@ -95,7 +95,7 @@ module Embulk
         actions = []
 
         actions.push({ add: { index: get_index(task), alias: als } })
-        Embulk.logger.info "added swap target: add, #{als}, index: #{get_index(task)}"
+        Embulk.logger.info "register alias swap action: add, alias: #{als}, index: #{get_index(task)}"
 
         indices = client.indices.get_aliases.select { |key, value| value['aliases'].include? als }.keys
         indices = indices.select { |index| /^#{get_index_prefix(task)}-(\d*)/ =~ index }
@@ -104,7 +104,7 @@ module Embulk
           if index != get_index(task)
             actions.push({ remove: { index: index, alias: als } })
             indices_deleted_alias.push(index)
-            Embulk.logger.info "added swap target: remove, #{als}, index: #{index}"
+            Embulk.logger.info "register alias swap action: remove, alias: #{als}, index: #{index}"
           end
         }
 
