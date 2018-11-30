@@ -24,6 +24,7 @@ module Embulk
           "retry_on_failure" => config.param("retry_on_failure", :integer, default: 5),
           "before_template_name" => config.param("before_template_name", :string, default: nil),
           "before_template" => config.param("before_template", :hash, default: nil),
+          "swap_alias" => config.param("swap_alias", :bool, default: false),
         }
         task['time_value'] = Time.now.strftime('%Y.%m.%d.%H.%M.%S')
         task['index'] = Time.now.strftime(task['index'])
@@ -47,8 +48,12 @@ module Embulk
       def self.cleanup(task, schema, count, task_reports)
         if task['mode'] == 'replace'
           client = create_client(task)
-          create_aliases(client, task['index'], get_index(task))
-          delete_aliases(client, task)
+          if task['swap_alias']
+            swap_aliases(client, task)
+          else
+            create_aliases(client, task['index'], get_index(task))
+            delete_aliases(client, task)
+          end
         end
       end
 
@@ -82,6 +87,39 @@ module Embulk
             end
           end
         }
+      end
+
+      def self.swap_aliases(client, task)
+        als = task['index']
+
+        actions = []
+
+        actions.push({ add: { index: get_index(task), alias: als } })
+        Embulk.logger.info "register alias swap action: add, alias: #{als}, index: #{get_index(task)}"
+
+        indices = client.indices.get_aliases.select { |key, value| value['aliases'].include? als }.keys
+        indices = indices.select { |index| /^#{get_index_prefix(task)}-(\d*)/ =~ index }
+        indices_deleted_alias = []
+        indices.each { |index|
+          if index != get_index(task)
+            actions.push({ remove: { index: index, alias: als } })
+            indices_deleted_alias.push(index)
+            Embulk.logger.info "register alias swap action: remove, alias: #{als}, index: #{index}"
+          end
+        }
+
+        client.indices.update_aliases body: {
+          actions: actions
+        }
+
+        Embulk.logger.info "swapped alias: #{als}"
+
+        if task['delete_old_index']
+          indices_deleted_alias.each { |index|
+            client.indices.delete index: index
+            Embulk.logger.info "deleted index: #{index}"
+          }
+        end
       end
 
       def self.get_index(task)
